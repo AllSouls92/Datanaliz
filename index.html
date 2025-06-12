@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.1">
+    <title>Datanaliz</title>
+    <script src="./js/plotly-2.32.0.min.js" defer></script>
+    <script src="./js/papaparse.min.js" defer></script>
+    <script src="./js/simple-statistics.min.js" defer></script>
+    <script src="./js/regression.min.js" defer></script>
+    <script src="./js/analysis-logic.js" defer></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 90%;
+            max-width: 950px;
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #333;
+        }
+        .input-area {
+            margin-bottom: 20px;
+        }
+        .input-area label.file-label {
+            display: inline-block;
+            padding: 8px 12px;
+            margin-bottom: 10px;
+            border: 1px solid #007bff;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .input-area label.file-label:hover {
+            background-color: #e2e6ea;
+        }
+        #fileInput {
+            display: none;
+        }
+        #fileName {
+            margin-left: 10px;
+            font-style: italic;
+            color: #555;
+        }
+        textarea {
+            width: 98%;
+            min-height: 150px;
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            display: block;
+        }
+        
+        textarea::placeholder {
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        label {
+            margin-right: 10px;
+            font-weight: bold;
+            display: inline-block;
+            margin-bottom: 5px;
+        }
+        select, button, input[type="number"], input[type="text"] {
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            border: 1px solid #007bff;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #swapXYBtn {
+            background-color: #ffc107;
+            border-color: #ffc107;
+            color: #333;
+            padding: 8px 10px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        #swapXYBtn:hover {
+            background-color: #e0a800;
+        }
+        .export-buttons button {
+            background-color: #28a745;
+            border-color: #28a745;
+            margin-top: 10px;
+        }
+        .export-buttons button:hover {
+            background-color: #218838;
+        }
+        #fullscreenBtn {
+            background-color: #17a2b8;
+            border-color: #17a2b8;
+        }
+        #fullscreenBtn:hover {
+            background-color: #138496;
+        }
+        .plot-container {
+            width: 100%;
+            margin-top: 20px;
+            position: relative;
+        }
+        #plotDiv, #plotDiv2 {
+            width: 100%;
+            min-height: 400px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        #plotDiv2 {
+            display: none;
+        }
+        .error-message {
+            color: red;
+            margin-top: 10px;
+            font-weight: bold;
+            white-space: pre-wrap;
+            min-height: 1.2em;
+            line-height: 1.4;
+        }
+        #statsSummary {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        #statsSummary h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        #statsSummary h4 {
+            margin-top: 15px;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+            color: #333;
+        }
+        #statsSummary ul {
+            list-style: none;
+            padding-left: 15px;
+            margin-top: 5px;
+        }
+        #statsSummary li {
+            margin-bottom: 5px;
+            font-size: 14px;
+            color: #555;
+        }
+        #statsSummary li span {
+            font-weight: bold;
+            color: #333;
+            min-width: 150px;
+            display: inline-block;
+        }
+        #statsSummary pre {
+            margin: 5px 0 15px 15px;
+            font-size: 13px;
+            color: #333;
+            white-space: pre;
+            word-wrap: normal;
+            overflow-x: auto;
+            background-color: #fff;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 3px;
+        }
+        #statsSummary hr {
+            border: none;
+            border-top: 1px dashed #ccc;
+            margin: 20px 0;
+        }
+        .info-message {
+            color: #007bff;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            display: block;
+        }
+        .stats-export-buttons {
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+        }
+        .input-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px dashed #ccc;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+        }
+        .column-selector-div, .param-input-div {
+            display: none;
+            margin-top: 10px;
+        }
+        .column-selector-div label, .param-input-div label {
+            margin-right: 5px;
+            min-width: 20px;
+            text-align: right;
+        }
+        .column-selector-div select, .param-input-div input, .param-input-div select {
+            min-width: 150px;
+            margin-right: 15px;
+        }
+        #parcoordsColorDiv label, #splomColorDiv label {
+            min-width: 90px;
+            text-align: right;
+        }
+        .param-input-div input[type="number"], .param-input-div input[type="text"] {
+            width: 80px;
+            min-width: 60px;
+        }
+        .param-input-div label {
+            min-width: 80px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>可视化数据分析</h1>
+        
+        <h5 style="display: flex; justify-content: space-between; align-items: baseline; width: 100%;">
+            <span style="flex: 1;"></span>
+            <span style="flex: 2; text-align: center;">代码完全开源，请放心使用。懂的都懂，致敬1984。</span>
+            <span style="flex: 1; text-align: right;">by OdinCode</span>
+        </h5>
+        <div style="text-align: left;">
+        <h3>1. 导入数据</h3></div>
+        <div class="input-area">
+            <label for="fileInput" class="file-label">选择文件 (CSV, TSV, TXT)</label>
+            <input type="file" id="fileInput" accept=".csv,.tsv,.txt">
+            <span id="fileName">未选择文件</span>
+             <div style="display: inline-block; margin-left: 15px; vertical-align: middle;">
+                 <input type="checkbox" id="headerCheckbox" checked>
+                 <label for="headerCheckbox">首行是标题（若首行是数据，请勿勾选）</label>
+             </div>
+            <p>或者，将数据直接粘贴到下方文本框中 (使用逗号、制表符分隔列，每行一个观测点):</p>
+            <textarea id="dataInput" placeholder="
+多变量示例 (用于热力图, 散点图矩阵, 平行坐标图):
+Var1,Var2,Var3,Category,Value
+1,5,10,A,20
+2,6,12,B,22
+1.5,5.5,11,A,21
+2.5,6.5,13,C,23
+8,15,30,B,40
+"></textarea>
+        </div>
+        <div id="inputError" class="error-message"></div>
+
+        <div style="text-align: left;">
+        <h3>2. 选择图表类型并绘制</h3></div>
+        <div>
+            <label for="chartType">选择图表/分析:</label>
+            <select id="chartType">
+                <optgroup label="单变量图表 (1 列)">
+                    <option value="histogram">直方图</option>
+                    <option value="boxplot">箱线图</option>
+                    <option value="violin">小提琴图</option>
+                    <option value="density">核密度估计 (KDE)</option>
+                    <option value="gaussian">高斯拟合分布</option>
+                    <option value="cdf">累积分布图 (CDF)</option>
+                </optgroup>
+                 <optgroup label="分类汇总图表 (标签+值)">
+                    <option value="bar">条形图</option>
+                    <option value="pie">饼图</option>
+                    <option value="pareto">帕累托图</option>
+                </optgroup>
+                <optgroup label="双变量图表 (2 列)">
+                    <option value="scatter">散点图</option>
+                    <option value="line_trend">折线图</option>
+                    <option value="area">面积图</option>
+                    <option value="contour_density">密度等高线图</option>
+                </optgroup>
+                <optgroup label="回归分析 (2 列)">
+                    <option value="scatter_linear_regression">散点图 + 线性回归</option>
+                    <option value="scatter_poly2_regression">散点图 + 二次多项式回归</option>
+                    <option value="scatter_poly3_regression">散点图 + 三次多项式回归</option>
+                    <option value="scatter_exp_regression">散点图 + 指数回归</option>
+                    <option value="scatter_log_regression">散点图 + 对数回归</option>
+                    <option value="scatter_power_regression">散点图 + 幂函数回归</option>
+                    <option value="residual_plot_linear">线性回归残差图</option>
+                </optgroup>
+                <optgroup label="多维可视化 (>2 列)">
+                     <option value="bubble_color">气泡图 (X, Y, 颜色)</option>
+                    <option value="scatter_3d">3D 散点图 (X, Y, Z, 颜色)</option>
+                    <option value="contour">等高线图 (X, Y, Z值)</option>
+                    <option value="correlation_heatmap">相关系数热力图</option>
+                    <option value="scatter_matrix">散点图矩阵</option>
+                    <option value="parallel_coordinates">平行坐标图</option>
+                </optgroup>
+                <optgroup label="统计检验">
+                    <option value="t_test_one_sample">单样本 T 检验 (1 列)</option>
+                    <option value="t_test_two_sample">双独立样本 T 检验 (2 列)</option>
+                    <option value="t_test_paired">配对样本 T 检验 (2 列)</option>
+                    <option value="permutation_test">置换检验 (2 列)</option>
+                    <option value="kmeans">K-均值聚类 (2 列)</option>
+                </optgroup>
+            </select>
+            <button id="drawChartBtn">绘制/分析</button>
+        </div>
+
+        <div id="columnSelectors">
+            <div id="selectCategoricalDiv" class="column-selector-div input-section">
+                <label for="selectLabelsCol">标签列 (分类):</label>
+                <select id="selectLabelsCol"></select>
+                <label for="selectValuesCol">值列 (数值):</label>
+                <select id="selectValuesCol"></select>
+            </div>
+            <div id="selectCol1Div" class="column-selector-div input-section">
+                <label for="selectCol1">选择数据列:</label>
+                <select id="selectCol1"></select>
+            </div>
+            <div id="selectCol2Div" class="column-selector-div input-section">
+                <label for="selectColX">X 轴:</label>
+                <select id="selectColX"></select>
+                <label for="selectColY">Y 轴:</label>
+                <select id="selectColY"></select>
+                <button id="swapXYBtn" title="交换X轴和Y轴选择">交换 X/Y</button>
+            </div>
+            <div id="selectCol3Div" class="column-selector-div input-section">
+                <label for="selectCol3DX">X 轴:</label>
+                <select id="selectCol3DX"></select>
+                <label for="selectCol3DY">Y 轴:</label>
+                <select id="selectCol3DY"></select>
+                <label for="selectCol3DZ" id="zAxisLabel">Z 轴:</label>
+                <select id="selectCol3DZ"></select>
+                <span id="selectCol4DColorDiv" style="display:none;">
+                    <label for="selectCol4DColor">颜色轴:</label>
+                    <select id="selectCol4DColor"></select>
+                </span>
+            </div>
+            <div id="parcoordsColorDiv" class="column-selector-div input-section">
+                <label for="selectColorVar">线条着色依据:</label>
+                <select id="selectColorVar">
+                    <option value="-1">默认颜色</option>
+                </select>
+                <span class="info-message">选择一列为平行坐标图的线条着色 (可选)。</span>
+            </div>
+            <div id="splomColorDiv" class="column-selector-div input-section">
+                <label for="selectSplomColorVar">散点着色依据:</label>
+                <select id="selectSplomColorVar">
+                    <option value="-1">默认颜色</option>
+                </select>
+                <span class="info-message">选择一列为散点图矩阵的散点着色 (可选)。</span>
+            </div>
+        </div>
+
+        <div id="paramInputs">
+            <div id="oneSampleInputDiv" class="param-input-div input-section">
+                <label for="hypothesizedMean">假设均值 (μ₀):</label>
+                <input type="number" id="hypothesizedMean" value="0" step="any">
+                <span class="info-message">输入要与样本均值比较的总体均值。</span>
+            </div>
+            <div id="kmeansParamsDiv" class="param-input-div input-section">
+                <label for="kmeansKInput">聚类数 (K):</label>
+                <input type="number" id="kmeansKInput" value="3" min="2" step="1">
+                <span class="info-message">输入要创建的聚类数量 (K ≥ 2)。</span>
+            </div>
+            <div id="permutationParamsDiv" class="param-input-div input-section">
+                <label for="permutationIterationsInput">置换次数:</label>
+                <input type="number" id="permutationIterationsInput" value="10000" min="100" step="100">
+                <span class="info-message">输入模拟置换的次数 (建议 ≥ 1000)。</span>
+            </div>
+        </div>
+
+        <div id="chartError" class="error-message"></div>
+
+        <div style="text-align: left;">
+        <h3>3. 图表/分析结果</h3></div>
+        <div class="plot-container">
+            <div id="plotDiv"></div>
+            <div id="plotDiv2"></div>
+            <div class="export-buttons">
+                <button id="exportSvgBtn">导出图表 (SVG)</button>
+                <button id="fullscreenBtn">全屏显示</button>
+            </div>
+        </div>
+
+
+        <div id="statsSummary">
+            <h2>统计摘要</h2>
+            <div id="statsContent">
+                <p>请先输入有效数据并选择分析类型以查看统计摘要。</p>
+            </div>
+            <div class="stats-export-buttons">
+                <button id="exportTxtBtn">导出统计 (TXT)</button>
+                <button id="exportCsvBtn">导出统计 (CSV)</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
