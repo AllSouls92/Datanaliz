@@ -57,11 +57,10 @@ const exportCsvBtn = document.getElementById('exportCsvBtn');
 let currentParsedData = null;
 let currentStatsData = null;
 
-// --- Event Listeners ---
 fileInput.addEventListener('change', handleFileSelect, false);
 chartTypeSelect.addEventListener('change', handleChartTypeChange);
 drawChartBtn.addEventListener('click', drawChart);
-swapXYBtn.addEventListener('click', swapXYAxes);
+document.querySelectorAll('#swapXYBtn').forEach(btn => btn.addEventListener('click', swapXYAxes));
 exportSvgBtn.addEventListener('click', () => exportChart('svg'));
 exportTxtBtn.addEventListener('click', () => exportStats('txt'));
 exportCsvBtn.addEventListener('click', () => exportStats('csv'));
@@ -133,15 +132,26 @@ function handleChartTypeChange() {
 
 
 function swapXYAxes() {
-    if (!selectColX || !selectColY) return;
-    const currentX = selectColX.value;
-    const currentY = selectColY.value;
-    if (currentX === "" || currentY === "") return;
-
-    selectColX.value = currentY;
-    selectColY.value = currentX;
+    if (selectCol2Div.style.display === 'block') {
+        if (!selectColX || !selectColY) return;
+        const currentX = selectColX.value;
+        const currentY = selectColY.value;
+        if (currentX === "" || currentY === "") return;
+        selectColX.value = currentY;
+        selectColY.value = currentX;
+    } else if (selectCategoricalDiv.style.display === 'block') {
+        if (!selectLabelsCol || !selectValuesCol) return;
+        const currentLabels = selectLabelsCol.value;
+        const currentValues = selectValuesCol.value;
+        if (currentLabels === "" || currentValues === "") return;
+        selectLabelsCol.value = currentValues;
+        selectValuesCol.value = currentLabels;
+    } else {
+        return;
+    }
     drawChart();
 }
+
 
 function handleFileSelect(event) {
     inputErrorDiv.textContent = '';
@@ -167,12 +177,55 @@ function handleFileSelect(event) {
     reader.readAsText(file);
 }
 
+const ordinalDetectors = {
+    month: {
+        map: {
+            'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6, 
+            'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
+            'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'jun': 6,
+            'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+            '一月': 1, '二月': 2, '三月': 3, '四月': 4, '五月': 5, '六月': 6,
+            '七月': 7, '八月': 8, '九月': 9, '十月': 10, '十一月': 11, '十二月': 12,
+        },
+        test: (v) => ordinalDetectors.month.map[v] !== undefined
+    },
+    weekday: {
+        map: {
+            'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4, 'friday': 5, 'saturday': 6, 'sunday': 7,
+            'mon': 1, 'tue': 2, 'wed': 3, 'thu': 4, 'fri': 5, 'sat': 6, 'sun': 7,
+            '星期一': 1, '星期二': 2, '星期三': 3, '星期四': 4, '星期五': 5, '星期六': 6, '星期日': 7, '星期天': 7,
+        },
+        test: (v) => ordinalDetectors.weekday.map[v] !== undefined
+    },
+    quarter: {
+        map: {
+            'q1': 1, '1st quarter': 1, '第一季度': 1,
+            'q2': 2, '2nd quarter': 2, '第二季度': 2,
+            'q3': 3, '3rd quarter': 3, '第三季度': 3,
+            'q4': 4, '4th quarter': 4, '第四季度': 4,
+        },
+        test: (v) => ordinalDetectors.quarter.map[v] !== undefined
+    },
+    letter: {
+        test: (v) => /^[a-zA-Z]$/.test(v),
+        postTest: (uniqueVals) => {
+            const isAllUpper = uniqueVals.every(l => l === l.toUpperCase());
+            const isAllLower = uniqueVals.every(l => l === l.toLowerCase());
+            if (!isAllUpper && !isAllLower) return false;
+            const codes = uniqueVals.map(l => l.charCodeAt(0));
+            return (codes[codes.length - 1] - codes[0]) <= (uniqueVals.length - 1) * 2;
+        },
+        mapValue: (v, uniqueVals) => {
+            const baseCode = uniqueVals[0].toLowerCase().charCodeAt(0);
+            return v.toLowerCase().charCodeAt(0) - baseCode + 1;
+        }
+    }
+};
+
 function parseData() {
     inputErrorDiv.textContent = '';
     const rawData = dataInput.value.trim();
-    if (!rawData) {
-        return null; // Silently return on empty input
-    }
+    if (!rawData) return null;
 
     const hasHeader = headerCheckbox.checked;
     const results = Papa.parse(rawData, {
@@ -212,12 +265,10 @@ function parseData() {
     const originalDataColumns = Array.from({ length: numCols }, () => new Array(numRows));
     const numericDataColumns = Array.from({ length: numCols }, () => new Array(numRows));
 
-    // A single loop to transpose and convert
-    for (let i = 0; i < numRows; i++) { // Loop rows
-        for (let j = 0; j < numCols; j++) { // Loop columns
+    for (let i = 0; i < numRows; i++) {
+        for (let j = 0; j < numCols; j++) {
             const header = headers[j];
             const rawValue = hasHeader ? (data[i][header] ?? '') : (data[i][j] ?? '');
-            
             const valueStr = String(rawValue).trim();
             originalDataColumns[j][i] = valueStr;
             
@@ -226,6 +277,49 @@ function parseData() {
             } else {
                 const num = parseFloat(valueStr);
                 numericDataColumns[j][i] = isNaN(num) ? NaN : num;
+            }
+        }
+    }
+    
+    const ordinalMaps = {};
+    for (let j = 0; j < numCols; j++) {
+        const numericCol = numericDataColumns[j];
+        const originalCol = originalDataColumns[j];
+        const nonNullCount = originalCol.filter(v => v !== null && v !== '').length;
+        const numericCount = numericCol.filter(v => !isNaN(v)).length;
+
+        if (nonNullCount > 2 && (numericCount / nonNullCount) < 0.5) {
+            for (const type in ordinalDetectors) {
+                const detector = ordinalDetectors[type];
+                const cleanOriginal = originalCol.filter(v => v !== '');
+                const matchCount = cleanOriginal.filter(v => detector.test(String(v).toLowerCase())).length;
+
+                if (matchCount / nonNullCount > 0.8) {
+                    let isSequence = true;
+                    const uniqueVals = [...new Set(cleanOriginal.filter(v => detector.test(String(v).toLowerCase())))].sort();
+                    if (detector.postTest) {
+                        isSequence = detector.postTest(uniqueVals);
+                    }
+                    
+                    if (isSequence && uniqueVals.length > 1) {
+                        const numericMap = {};
+                        const newNumericCol = originalCol.map(v => {
+                            const lcVal = String(v).toLowerCase();
+                            if (detector.test(lcVal)) {
+                                const num = detector.map ? detector.map[lcVal] : detector.mapValue(v, uniqueVals);
+                                if (num !== undefined) {
+                                    if (!numericMap[num]) { numericMap[num] = v; }
+                                    return num;
+                                }
+                            }
+                            return v === '' ? null : NaN;
+                        });
+                        
+                        numericDataColumns[j] = newNumericCol;
+                        ordinalMaps[j] = numericMap;
+                        break;
+                    }
+                }
             }
         }
     }
@@ -239,7 +333,8 @@ function parseData() {
     return {
         numericData: numericDataColumns,
         originalData: originalDataColumns,
-        headers: headers
+        headers: headers,
+        ordinalMaps: ordinalMaps
     };
 }
 
@@ -288,9 +383,9 @@ function populateColumnSelectors() {
 
     const headers = currentParsedData.headers;
     const numericSelectors = [selectCol1, selectColX, selectColY, selectCol3DX, selectCol3DY, selectCol3DZ,
-        selectCol4DColor, selectValuesCol
+        selectCol4DColor
     ];
-    const allColSelectors = [selectColorVar, selectSplomColorVar, selectLabelsCol];
+    const allColSelectors = [selectColorVar, selectSplomColorVar, selectLabelsCol, selectValuesCol];
 
     const numericIndices = [];
     const allIndices = [];
@@ -515,7 +610,7 @@ function calculatePolynomialRegression(xArr, yArr, degree) {
     const dataForRegression = cleanPairs.map(p => [p.x, p.y]);
     const xClean = dataForRegression.map(p => p[0]);
     if (ss.variance(xClean) <= STD_DEV_ZERO_THRESHOLD) {
-         throw new Error(`多项式回归失败：X 数据的方差为零或过小。`);
+       throw new Error(`多项式回归失败：X 数据的方差为零或过小。`);
     }
     try {
         const result = regression.polynomial(dataForRegression, {
@@ -549,7 +644,7 @@ function calculateExponentialRegression(xArr, yArr) {
     const dataForRegression = validPairs.map(p => [p.x, p.y]);
     const xClean = dataForRegression.map(p => p[0]);
     if (ss.variance(xClean) <= STD_DEV_ZERO_THRESHOLD) {
-         throw new Error(`指数回归失败：X 数据的方差为零或过小。`);
+       throw new Error(`指数回归失败：X 数据的方差为零或过小。`);
     }
     try {
         const result = regression.exponential(dataForRegression, {
@@ -584,7 +679,7 @@ function calculateLogarithmicRegression(xArr, yArr) {
     const dataForRegression = validPairs.map(p => [p.x, p.y]);
     const xClean = dataForRegression.map(p => p[0]);
     if (ss.variance(xClean) <= STD_DEV_ZERO_THRESHOLD) {
-         throw new Error(`对数回归失败：X 数据的方差为零或过小。`);
+       throw new Error(`对数回归失败：X 数据的方差为零或过小。`);
     }
     try {
         const result = regression.logarithmic(dataForRegression, {
@@ -619,7 +714,7 @@ function calculatePowerRegression(xArr, yArr) {
     const dataForRegression = validPairs.map(p => [p.x, p.y]);
      const xClean = dataForRegression.map(p => p[0]);
     if (ss.variance(xClean) <= STD_DEV_ZERO_THRESHOLD) {
-         throw new Error(`幂函数回归失败：X 数据的方差为零或过小。`);
+       throw new Error(`幂函数回归失败：X 数据的方差为零或过小。`);
     }
     try {
         const result = regression.power(dataForRegression, {
@@ -649,7 +744,7 @@ function getRegressionModel(chartType, xClean, yClean) {
     let minPointsLinear = MIN_POINTS_FOR_CORR_REG;
     let minPointsNonLinear = MIN_POINTS_FOR_NONLINEAR_REG;
 
-    if (chartType.includes('linear') || chartType === 'line_trend' || chartType === 'residual_plot_linear') {
+    if (chartType.includes('linear') || chartType === 'residual_plot_linear') {
         if (xClean.length < minPointsLinear) throw new Error(`线性回归需要至少 ${minPointsLinear} 个有效数据点。`);
         model = calculateLinearRegression(xClean, yClean);
         if (!model) throw new Error(`无法计算线性回归 (数据不足、方差为零或计算错误)。`);
@@ -922,7 +1017,7 @@ function calculatePermutationTest(arr1, arr2, iterations = 10000) {
     }
 
     try {
-        const pValue = ss.permutationTest(cleanArr1, cleanArr2); // using default 'two-sided'
+        const pValue = ss.permutationTest(cleanArr1, cleanArr2); 
 
         if (typeof pValue !== 'number' || !isFinite(pValue)) {
             console.warn("ss.permutationTest did not return a valid p-value.");
@@ -1026,8 +1121,6 @@ function calculateKMeans(dataColumns, headers, k) {
         throw new Error(`K-均值聚类计算失败: ${e.message}`);
     }
 }
-
-
 
 function displayStats(statsData, chartType) {
     currentStatsData = statsData;
@@ -1233,28 +1326,28 @@ function displayStats(statsData, chartType) {
                         case 'linear':
                             regTitle = `线性回归模型 (${yHeader} ~ ${xHeader})`;
                             regDetails = `<li><span>回归方程:</span> ${reg.equationString || `${yHeader} ≈ ${formatStat(reg.slope)} * ${xHeader} + ${formatStat(reg.intercept)}`}</li>
-                                          <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>
-                                          <li><span>解释:</span> 模型解释了 ${yHeader} 方差的 ${formatStat(reg.rSquared * 100, 1)}%。</li>`;
+                                            <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>
+                                            <li><span>解释:</span> 模型解释了 ${yHeader} 方差的 ${formatStat(reg.rSquared * 100, 1)}%。</li>`;
                             break;
                         case 'polynomial':
                             regTitle = `${reg.degree}次多项式回归 (${yHeader} ~ ${xHeader})`;
                             regDetails = `<li><span>拟合方程:</span> ${reg.equationString || 'N/A'}</li>
-                                          <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>`;
+                                            <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>`;
                             break;
                         case 'exponential':
                             regTitle = `指数回归 (${yHeader} ~ ${xHeader})`;
                             regDetails = `<li><span>拟合方程:</span> ${reg.equationString || 'N/A'}</li>
-                                          <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>`;
+                                            <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>`;
                             break;
                         case 'logarithmic':
                             regTitle = `对数回归 (${yHeader} ~ ${xHeader})`;
                             regDetails = `<li><span>拟合方程:</span> ${reg.equationString || 'N/A'}</li>
-                                          <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>`;
+                                            <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>`;
                             break;
                         case 'power':
                             regTitle = `幂函数回归 (${yHeader} ~ ${xHeader})`;
                             regDetails = `<li><span>拟合方程:</span> ${reg.equationString || 'N/A'}</li>
-                                          <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>`;
+                                            <li><span>判定系数 (R²):</span> ${formatStat(reg.rSquared)}</li>`;
                             break;
                     }
 
@@ -1265,14 +1358,14 @@ function displayStats(statsData, chartType) {
 
                     if (statsData.residuals && (chartType === 'residual_plot_linear' || reg.type === 'linear')) {
                         specificListHTML += `<li><b>残差统计 (线性模型):</b>
-                                                 <ul>
-                                                     <li><span>均值:</span> ${formatStat(statsData.residuals.mean)}</li>
-                                                     <li><span>标准差:</span> ${formatStat(statsData.residuals.stdDev)}</li>
-                                                 </ul>
-                                             </li>`;
+                                                <ul>
+                                                    <li><span>均值:</span> ${formatStat(statsData.residuals.mean)}</li>
+                                                    <li><span>标准差:</span> ${formatStat(statsData.residuals.stdDev)}</li>
+                                                </ul>
+                                            </li>`;
                         specificStatsFound = true;
                     }
-                } else if (chartType !== 'area' && !chartType.startsWith('t_test') && chartType !== 'permutation_test' && chartType !== 'kmeans' && chartType !== 'contour_density' && chartType !== 'bubble_color' && chartType !== 'scatter') {
+                } else if (chartType !== 'area' && !chartType.startsWith('t_test') && chartType !== 'permutation_test' && chartType !== 'kmeans' && chartType !== 'contour_density' && chartType !== 'bubble_color' && chartType !== 'scatter' && chartType !== 'line_trend') {
                     specificListHTML += `<li>无法计算回归模型 (数据不足、不满足模型要求、方差为零或计算错误)。</li>`;
                     specificStatsFound = true;
                 }
@@ -1392,14 +1485,14 @@ function displayStats(statsData, chartType) {
                 if (statsData.kmeans) {
                     const km = statsData.kmeans;
                     specificListHTML += `<li><b>K-均值聚类结果 (基于 ${km.dimensionsUsed.join(', ')}):</b>
-                                             <ul>
-                                                 <li><span>聚类数 (K):</span> ${km.k}</li>
-                                                 <li><span>聚类点数:</span> ${km.clusteredDataPoints.length} (来自 ${currentParsedData?.numericData[0]?.length ?? '?'} 行，移除了缺失值)</li>
-                                                 <li><span>平均 Silhouette 分数:</span> ${formatStat(km.silhouette.mean)} (越接近 1 越好)</li>
-                                                 <li><span>质心坐标 (维度: ${km.dimensionsUsed.join('/')}):</span></li>
-                                                 <pre>${km.centroids.map((c, i) => `  Cluster ${i + 1}: [${c.map(v => formatStat(v, 2)).join(', ')}]`).join('\n')}</pre>
-                                             </ul>
-                                         </li>`;
+                                            <ul>
+                                                <li><span>聚类数 (K):</span> ${km.k}</li>
+                                                <li><span>聚类点数:</span> ${km.clusteredDataPoints.length} (来自 ${currentParsedData?.numericData[0]?.length ?? '?'} 行，移除了缺失值)</li>
+                                                <li><span>平均 Silhouette 分数:</span> ${formatStat(km.silhouette.mean)} (越接近 1 越好)</li>
+                                                <li><span>质心坐标 (维度: ${km.dimensionsUsed.join('/')}):</span></li>
+                                                <pre>${km.centroids.map((c, i) => `  Cluster ${i + 1}: [${c.map(v => formatStat(v, 2)).join(', ')}]`).join('\n')}</pre>
+                                            </ul>
+                                        </li>`;
                     specificStatsFound = true;
                 }
                 break;
@@ -1426,6 +1519,17 @@ function displayStats(statsData, chartType) {
     statsContentDiv.innerHTML = statsHTML;
 }
 
+function applyOrdinalMap(layout, axisName, columnIndex, ordinalMaps) {
+    if (ordinalMaps && ordinalMaps[columnIndex]) {
+        const mapping = ordinalMaps[columnIndex];
+        const tickvals = Object.keys(mapping).map(Number).sort((a,b) => a-b);
+        const ticktext = tickvals.map(val => mapping[val]);
+        
+        if (!layout[axisName]) layout[axisName] = {};
+        layout[axisName].tickvals = tickvals;
+        layout[axisName].ticktext = ticktext;
+    }
+}
 
 function drawUnivariateChart(chartType, data, header, statsData, layout) {
     const traces = [];
@@ -1437,50 +1541,18 @@ function drawUnivariateChart(chartType, data, header, statsData, layout) {
 
     switch (chartType) {
         case 'histogram':
-            traces.push({
-                x: cleanData,
-                type: 'histogram',
-                name: '频数',
-                marker: {
-                    color: DEFAULT_POINT_COLOR
-                }
-            });
+            traces.push({ x: cleanData, type: 'histogram', name: '频数', marker: { color: DEFAULT_POINT_COLOR } });
             layout.title = `直方图: ${header}`;
             layout.yaxis.title = '频数 (Count)';
             break;
         case 'boxplot':
-            traces.push({
-                y: cleanData,
-                type: 'box',
-                name: header,
-                boxpoints: 'all',
-                jitter: 0.3,
-                pointpos: -1.8,
-                boxmean: 'sd',
-                marker: {
-                    color: DEFAULT_POINT_COLOR
-                }
-            });
+            traces.push({ y: cleanData, type: 'box', name: header, boxpoints: 'all', jitter: 0.3, pointpos: -1.8, boxmean: 'sd', marker: { color: DEFAULT_POINT_COLOR } });
             layout.title = `箱线图: ${header}`;
             layout.yaxis.title = '数据值';
             layout.xaxis.title = '';
             break;
         case 'violin':
-            traces.push({
-                y: cleanData,
-                type: 'violin',
-                name: header,
-                points: 'all',
-                box: {
-                    visible: true
-                },
-                meanline: {
-                    visible: true
-                },
-                marker: {
-                    color: DEFAULT_POINT_COLOR
-                }
-            });
+            traces.push({ y: cleanData, type: 'violin', name: header, points: 'all', box: { visible: true }, meanline: { visible: true }, marker: { color: DEFAULT_POINT_COLOR } });
             layout.title = `小提琴图: ${header}`;
             layout.yaxis.title = '数据值';
             layout.xaxis.title = '';
@@ -1491,38 +1563,15 @@ function drawUnivariateChart(chartType, data, header, statsData, layout) {
             }
             try {
                 const kde = ss.kernelDensityEstimation(cleanData);
-                const dataMin = basicStats.min;
-                const dataMax = basicStats.max;
+                const dataMin = basicStats.min, dataMax = basicStats.max;
                 const range = dataMax - dataMin;
-                const plotMin = dataMin - range * 0.1;
-                const plotMax = dataMax + range * 0.1;
+                const plotMin = dataMin - range * 0.1, plotMax = dataMax + range * 0.1;
                 const step = (plotMax - plotMin) / KDE_PLOT_POINTS;
-                const xPoints = Array.from({
-                    length: KDE_PLOT_POINTS + 1
-                }, (_, i) => plotMin + i * step);
+                const xPoints = Array.from({ length: KDE_PLOT_POINTS + 1 }, (_, i) => plotMin + i * step);
                 const yPoints = xPoints.map(x => kde(x));
 
-                traces.push({
-                    x: xPoints,
-                    y: yPoints,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: 'KDE 拟合',
-                    line: {
-                        color: 'red'
-                    }
-                });
-                traces.push({
-                    x: cleanData,
-                    type: 'histogram',
-                    histnorm: 'probability density',
-                    name: '数据分布 (参考)',
-                    autobinx: true,
-                    marker: {
-                        color: DEFAULT_POINT_COLOR,
-                        opacity: 0.5
-                    }
-                });
+                traces.push({ x: xPoints, y: yPoints, type: 'scatter', mode: 'lines', name: 'KDE 拟合', line: { color: 'red' } });
+                traces.push({ x: cleanData, type: 'histogram', histnorm: 'probability density', name: '数据分布 (参考)', autobinx: true, marker: { color: DEFAULT_POINT_COLOR, opacity: 0.5 } });
                 layout.barmode = 'overlay';
                 layout.title = `KDE 拟合: ${header}`;
                 layout.yaxis.title = '密度';
@@ -1535,97 +1584,53 @@ function drawUnivariateChart(chartType, data, header, statsData, layout) {
             layout.title = `直方图与高斯拟合: ${header}`;
             layout.yaxis.title = '概率密度';
             if (!basicStats || basicStats.count < MIN_POINTS_FOR_TTEST || basicStats.stdDev <= STD_DEV_ZERO_THRESHOLD) {
-                const currentErrors = chartErrorDiv.textContent;
-                const warning = `警告：列 "${header}" 数据点少于 ${MIN_POINTS_FOR_TTEST} 个或标准差过小/为零，无法绘制有效高斯曲线。仅显示归一化直方图。`;
-                if (!currentErrors.includes(warning)) {
-                    chartErrorDiv.textContent = (currentErrors ? currentErrors + '\n' : '') + warning;
-                }
-                traces.push({
-                    x: cleanData,
-                    type: 'histogram',
-                    histnorm: 'probability density',
-                    name: '密度',
-                    marker: {
-                        color: DEFAULT_POINT_COLOR
-                    }
-                });
+                chartErrorDiv.textContent += `\n警告：列 "${header}" 数据点过少或标准差为零，无法绘制有效高斯曲线。`;
+                traces.push({ x: cleanData, type: 'histogram', histnorm: 'probability density', name: '密度', marker: { color: DEFAULT_POINT_COLOR } });
             } else {
-                const mean = basicStats.mean;
-                const stdDev = basicStats.stdDev;
-                statsData.gaussian = {
-                    mean,
-                    stdDev
-                };
-                traces.push({
-                    x: cleanData,
-                    type: 'histogram',
-                    histnorm: 'probability density',
-                    name: '观测密度',
-                    marker: {
-                        color: DEFAULT_POINT_COLOR,
-                        opacity: 0.6
-                    }
-                });
-                const dataMin = basicStats.min;
-                const dataMax = basicStats.max;
-                const rangeMin = mean - 4 * stdDev;
-                const rangeMax = mean + 4 * stdDev;
-                const plotMin = Math.min(dataMin, rangeMin);
-                const plotMax = Math.max(dataMax, rangeMax);
+                const { mean, stdDev, min, max } = basicStats;
+                statsData.gaussian = { mean, stdDev };
+                traces.push({ x: cleanData, type: 'histogram', histnorm: 'probability density', name: '观测密度', marker: { color: DEFAULT_POINT_COLOR, opacity: 0.6 } });
+                const rangeMin = mean - 4 * stdDev, rangeMax = mean + 4 * stdDev;
+                const plotMin = Math.min(min, rangeMin), plotMax = Math.max(max, rangeMax);
                 const step = (plotMax - plotMin) / KDE_PLOT_POINTS;
-                const curveX = Array.from({
-                    length: KDE_PLOT_POINTS + 1
-                }, (_, i) => plotMin + i * step);
+                const curveX = Array.from({ length: KDE_PLOT_POINTS + 1 }, (_, i) => plotMin + i * step);
                 const curveY = curveX.map(x => gaussianPDF(x, mean, stdDev));
-                traces.push({
-                    x: curveX,
-                    y: curveY,
-                    type: 'scatter',
-                    mode: 'lines',
-                    name: `高斯拟合 (μ=${formatStat(mean)}, σ=${formatStat(stdDev)})`,
-                    line: {
-                        color: 'red',
-                        width: 2
-                    }
-                });
+                traces.push({ x: curveX, y: curveY, type: 'scatter', mode: 'lines', name: `高斯拟合 (μ=${formatStat(mean)}, σ=${formatStat(stdDev)})`, line: { color: 'red', width: 2 } });
                 layout.barmode = 'overlay';
             }
             break;
         case 'cdf':
             const sortedData = [...cleanData].sort((a, b) => a - b);
-            traces.push({
-                x: sortedData,
-                type: 'histogram',
-                histnorm: 'probability',
-                cumulative: {
-                    enabled: true,
-                    direction: "increasing"
-                },
-                name: '累积概率 (ECDF)',
-                marker: {
-                    color: DEFAULT_POINT_COLOR
-                }
-            });
+            traces.push({ x: sortedData, type: 'histogram', histnorm: 'probability', cumulative: { enabled: true, direction: "increasing" }, name: '累积概率 (ECDF)', marker: { color: DEFAULT_POINT_COLOR } });
             layout.title = `累积分布函数 (ECDF): ${header}`;
             layout.yaxis.title = '累积概率 P(X ≤ x)';
             layout.yaxis.range = [0, 1.05];
             break;
     }
-    return {
-        traces,
-        layout
-    };
+    return { traces, layout };
 }
-
-function drawBivariateChart(chartType, xData, yData, xHeader, yHeader, statsData, layout) {
+function drawBivariateChart(chartType, xData, yData, xHeader, yHeader, idxX, idxY, statsData, layout) {
     let traces = [];
     let traces2 = [];
     let layout2 = null;
 
-    const cleanPairs = filterCleanPairs(xData, yData);
+    let combinedData = xData.map((val, i) => ({ x: val, y: yData[i] }));
+    const { ordinalMaps } = currentParsedData;
+
+    if ((chartType === 'line_trend' || chartType === 'area') && ordinalMaps && ordinalMaps[idxX]) {
+        combinedData.sort((a, b) => {
+            if (a.x === null || isNaN(a.x)) return 1;
+            if (b.x === null || isNaN(b.x)) return -1;
+            return a.x - b.x;
+        });
+    }
+    
+    const cleanPairs = combinedData.filter(d => d.x !== null && !isNaN(d.x) && d.y !== null && !isNaN(d.y));
     if (cleanPairs.length === 0) throw new Error(`选择的列 (${xHeader} 和 ${yHeader}) 之间没有有效的 X-Y 数据对。`);
+    
     const xClean = cleanPairs.map(p => p.x);
     const yClean = cleanPairs.map(p => p.y);
+
 
     if (chartType === 'contour_density') {
         traces.push({
@@ -1633,62 +1638,32 @@ function drawBivariateChart(chartType, xData, yData, xHeader, yHeader, statsData
             y: yClean,
             type: 'histogram2dcontour',
             colorscale: 'Viridis',
-            contours: {
-                coloring: 'heatmap',
-                showlabels: true,
-                labelfont: {
-                    size: 10,
-                    color: 'white'
-                }
-            },
-            colorbar: {
-                title: '点密度'
-            }
+            contours: { coloring: 'heatmap', showlabels: true, labelfont: { size: 10, color: 'white' } },
+            colorbar: { title: '点密度' }
         });
         layout.title = `数据点密度等高线图 (${xHeader}, ${yHeader})`;
-        layout.xaxis.title = xHeader;
-        layout.yaxis.title = yHeader;
-        const currentErrors = chartErrorDiv.textContent;
-        const tip = '提示：此图显示X-Y平面上的数据点密度。';
-        if (!currentErrors.includes(tip)) {
-            chartErrorDiv.textContent = (currentErrors ? currentErrors + '\n' : '') + tip;
-        }
-        statsData.correlation = undefined;
-        statsData.spearmanCorrelation = undefined;
-        statsData.regression = null;
-        return {
-            traces,
-            layout
-        };
-    }
-
-
-    statsData.correlation = NaN;
-    statsData.spearmanCorrelation = NaN;
-    if (xClean.length >= MIN_POINTS_FOR_CORR_REG) {
-        const varianceX = ss.variance(xClean);
-        const varianceY = ss.variance(yClean);
-        if (varianceX > STD_DEV_ZERO_THRESHOLD && varianceY > STD_DEV_ZERO_THRESHOLD) {
-            try {
-                statsData.correlation = ss.sampleCorrelation(xClean, yClean);
-                if (!isFinite(statsData.correlation)) statsData.correlation = NaN;
-            } catch (e) {
-                console.error(`Pearson 相关性计算错误:`, e);
-                statsData.correlation = NaN;
-            }
-            try {
-                statsData.spearmanCorrelation = ss.sampleRankCorrelation(xClean, yClean);
-                if (!isFinite(statsData.spearmanCorrelation)) statsData.spearmanCorrelation = NaN;
-            } catch (e) {
-                console.error(`Spearman 相关性计算错误:`, e);
-                statsData.spearmanCorrelation = NaN;
+    } else {
+        statsData.correlation = NaN;
+        statsData.spearmanCorrelation = NaN;
+        if (xClean.length >= MIN_POINTS_FOR_CORR_REG) {
+            const varianceX = ss.variance(xClean);
+            const varianceY = ss.variance(yClean);
+            if (varianceX > STD_DEV_ZERO_THRESHOLD && varianceY > STD_DEV_ZERO_THRESHOLD) {
+                try {
+                    statsData.correlation = ss.sampleCorrelation(xClean, yClean);
+                    if (!isFinite(statsData.correlation)) statsData.correlation = NaN;
+                } catch (e) { console.error(`Pearson Correlation Error:`, e); statsData.correlation = NaN; }
+                try {
+                    statsData.spearmanCorrelation = ss.sampleRankCorrelation(xClean, yClean);
+                    if (!isFinite(statsData.spearmanCorrelation)) statsData.spearmanCorrelation = NaN;
+                } catch (e) { console.error(`Spearman Correlation Error:`, e); statsData.spearmanCorrelation = NaN; }
             }
         }
     }
-
+    
     layout.xaxis.title = xHeader;
     layout.yaxis.title = yHeader;
-    layout.title = `${yHeader} vs ${xHeader}`;
+    if(!layout.title) layout.title = `${yHeader} vs ${xHeader}`;
 
     const plotMode = (chartType.startsWith('line') || chartType === 'area' || chartType === 'scatter') ? 'lines+markers' : 'markers';
     const baseTrace = {
@@ -1704,22 +1679,19 @@ function drawBivariateChart(chartType, xData, yData, xHeader, yHeader, statsData
     if(chartType === 'scatter') baseTrace.mode = 'markers';
     if(chartType === 'line_trend') baseTrace.mode = 'lines+markers';
 
-
     if (chartType === 'area') {
         baseTrace.fill = 'tozeroy';
         layout.title = `面积图: ${yHeader} vs ${xHeader}`;
-        traces.push(baseTrace);
-        return {
-            traces,
-            layout
-        };
     }
 
+    if(chartType !== 'contour_density') {
+        traces.push(baseTrace);
+    }
+    
     let regressionModel = null;
     let showResiduals = (chartType === 'residual_plot_linear');
     let regressionError = null;
-
-    const needsRegression = chartType.includes('regression') || chartType === 'line_trend' || showResiduals;
+    const needsRegression = chartType.includes('regression') || showResiduals;
 
     if (needsRegression) {
         try {
@@ -1732,236 +1704,58 @@ function drawBivariateChart(chartType, xData, yData, xHeader, yHeader, statsData
 
     if (regressionModel) {
         statsData.regression = regressionModel;
-
         const xRange = ss.extent(xClean);
-        const xMin = xRange[0];
-        const xMax = xRange[1];
+        const xMin = xRange[0], xMax = xRange[1];
         const xFitStart = (xMin === xMax) ? xMin - 1 : xMin;
         const xFitEnd = (xMin === xMax) ? xMax + 1 : xMax;
         const numFitPoints = 100;
-        const xFit = Array.from({
-            length: numFitPoints + 1
-        }, (_, i) => xFitStart + (xFitEnd - xFitStart) * i / numFitPoints);
+        const xFit = Array.from({ length: numFitPoints + 1 }, (_, i) => xFitStart + (xFitEnd - xFitStart) * i / numFitPoints);
 
         const yFit = xFit.map(x => {
             try {
-                if ((regressionModel.type === 'logarithmic' || regressionModel.type === 'power') && x <= POSITIVE_VALUE_THRESHOLD) {
-                    return NaN;
-                }
+                if ((regressionModel.type === 'logarithmic' || regressionModel.type === 'power') && x <= POSITIVE_VALUE_THRESHOLD) return NaN;
                 return regressionModel.predict(x);
-            } catch (e) {
-                console.warn(`Regression prediction error at x=${x}:`, e);
-                return NaN;
-            }
+            } catch (e) { return NaN; }
         });
 
-        const validFitPoints = xFit.map((x, i) => ({
-            x: x,
-            y: yFit[i]
-        })).filter(p => p.y !== null && !isNaN(p.y));
+        const validFitPoints = xFit.map((x, i) => ({ x: x, y: yFit[i] })).filter(p => !isNaN(p.y));
 
         if (validFitPoints.length > 1) {
             traces.push({
                 x: validFitPoints.map(p => p.x),
                 y: validFitPoints.map(p => p.y),
-                mode: 'lines',
-                type: 'scatter',
+                mode: 'lines', type: 'scatter',
                 name: `${regressionModel.type} 拟合 (R²=${formatStat(regressionModel.rSquared)})`,
-                line: {
-                    color: 'red'
-                }
+                line: { color: 'red' }
             });
             let fitTypeName = regressionModel.type.charAt(0).toUpperCase() + regressionModel.type.slice(1);
             if (regressionModel.type === 'polynomial') fitTypeName += ` (阶数 ${regressionModel.degree})`;
             layout.title += ` (${fitTypeName} 拟合)`;
         } else if (!regressionError) {
-            regressionError = `无法绘制有效的 ${regressionModel.type} 拟合曲线 (预测点不足或无效)。`;
+            regressionError = `无法绘制有效的 ${regressionModel.type} 拟合曲线。`;
         }
 
         if (showResiduals && regressionModel.type === 'linear') {
-            const residuals = yClean.map((y, i) => {
-                try {
-                    return y - regressionModel.predict(xClean[i]);
-                } catch {
-                    return NaN;
-                }
-            });
+            const residuals = yClean.map((y, i) => y - regressionModel.predict(xClean[i]));
             const cleanResiduals = residuals.filter(r => !isNaN(r));
-
-            if (cleanResiduals.length > 0) {
-                statsData.residuals = {
-                    mean: ss.mean(cleanResiduals),
-                    stdDev: ss.standardDeviation(cleanResiduals)
-                };
-            } else {
-                statsData.residuals = {
-                    mean: NaN,
-                    stdDev: NaN
-                };
-            }
-
-            traces2.push({
-                x: xClean,
-                y: residuals,
-                mode: 'markers',
-                type: 'scatter',
-                name: '残差',
-                marker: {
-                    color: DEFAULT_POINT_COLOR
-                }
-            });
-            traces2.push({
-                x: ss.extent(xClean),
-                y: [0, 0],
-                mode: 'lines',
-                type: 'scatter',
-                name: 'y=0',
-                line: {
-                    color: 'grey',
-                    dash: 'dash'
-                }
-            });
-
-            layout2 = {
-                title: `残差图 (基于 ${xHeader} 的线性模型)`,
-                xaxis: {
-                    title: xHeader
-                },
-                yaxis: {
-                    title: '残差 (观测值 - 预测值)',
-                    zeroline: true
-                },
-                hovermode: 'closest',
-                margin: layout.margin,
-                autosize: true
-            };
+            statsData.residuals = cleanResiduals.length > 0 ? { mean: ss.mean(cleanResiduals), stdDev: ss.standardDeviation(cleanResiduals) } : { mean: NaN, stdDev: NaN };
+            
+            traces2.push({ x: xClean, y: residuals, mode: 'markers', type: 'scatter', name: '残差', marker: { color: DEFAULT_POINT_COLOR } });
+            traces2.push({ x: ss.extent(xClean), y: [0, 0], mode: 'lines', type: 'scatter', name: 'y=0', line: { color: 'grey', dash: 'dash' } });
+            
+            layout2 = { title: `残差图 (基于 ${xHeader} 的线性模型)`, xaxis: { title: xHeader }, yaxis: { title: '残差 (观测值 - 预测值)', zeroline: true }, hovermode: 'closest', margin: layout.margin, autosize: true };
             plotDiv2.style.display = 'block';
         }
     }
 
     if (regressionError) {
-        const currentErrors = chartErrorDiv.textContent;
-        if (!currentErrors.includes(regressionError)) {
-            chartErrorDiv.textContent = (currentErrors ? currentErrors + '\n' : '') + `警告：${regressionError}`;
-        }
+        chartErrorDiv.textContent = (chartErrorDiv.textContent ? chartErrorDiv.textContent + '\n' : '') + `警告：${regressionError}`;
     }
+    
+    applyOrdinalMap(layout, 'xaxis', idxX, ordinalMaps);
+    applyOrdinalMap(layout, 'yaxis', idxY, ordinalMaps);
 
-    traces.unshift(baseTrace);
-
-    return {
-        traces,
-        layout,
-        traces2,
-        layout2
-    };
-}
-
-function drawTrivariateChart(chartType, xData, yData, zData, xHeader, yHeader, zHeader, colorData, colorHeader, statsData, layout) {
-    const traces = [];
-
-    if (chartType === 'scatter_3d') {
-        if (!colorData) throw new Error("3D 散点图需要第四个维度 (颜色轴) 的数据。");
-
-        const cleanQuads = filterCleanQuads(xData, yData, zData, colorData);
-        if (cleanQuads.length === 0) throw new Error(`选择的列 (${xHeader}, ${yHeader}, ${zHeader}, ${colorHeader}) 之间没有有效的 X-Y-Z-Color 数据点。`);
-
-        const xClean = cleanQuads.map(p => p.x);
-        const yClean = cleanQuads.map(p => p.y);
-        const zClean = cleanQuads.map(p => p.z);
-        const cClean = cleanQuads.map(p => p.c);
-
-        traces.push({
-            x: xClean,
-            y: yClean,
-            z: zClean,
-            mode: 'markers',
-            marker: {
-                size: 5,
-                opacity: 0.7,
-                color: cClean,
-                colorscale: 'Viridis',
-                colorbar: {
-                    title: colorHeader
-                }
-            },
-            type: 'scatter3d'
-        });
-        layout = {
-            title: `3D 散点图: ${zHeader} vs (${xHeader}, ${yHeader})`,
-            scene: {
-                xaxis: {
-                    title: xHeader,
-                    backgroundcolor: "rgb(230, 230,230)"
-                },
-                yaxis: {
-                    title: yHeader,
-                    backgroundcolor: "rgb(230, 230,230)"
-                },
-                zaxis: {
-                    title: zHeader,
-                    backgroundcolor: "rgb(230, 230,230)"
-                }
-            },
-            margin: {
-                l: 0,
-                r: 0,
-                b: 0,
-                t: 40
-            },
-            hovermode: 'closest',
-            autosize: true
-        };
-
-    } else if (chartType === 'contour' || chartType === 'bubble_color') {
-        const cleanTriplets = filterCleanTriplets(xData, yData, zData);
-        if (cleanTriplets.length === 0) throw new Error(`选择的列 (${xHeader}, ${yHeader}, ${zHeader}) 之间没有有效的 X-Y-Z/Color 数据点。`);
-
-        const xClean = cleanTriplets.map(p => p.x);
-        const yClean = cleanTriplets.map(p => p.y);
-        const zOrColorClean = cleanTriplets.map(p => p.z);
-
-        if (chartType === 'contour') {
-            traces.push({
-                x: xClean,
-                y: yClean,
-                z: zOrColorClean,
-                type: 'contour',
-                colorscale: 'Viridis',
-                contours: {
-                    coloring: 'heatmap'
-                },
-                colorbar: {
-                    title: zHeader
-                }
-            });
-            layout.title = `等高线图: ${zHeader} vs (${xHeader}, ${yHeader})`;
-            layout.xaxis.title = xHeader;
-            layout.yaxis.title = yHeader;
-        } else { // bubble_color
-            traces.push({
-                x: xClean,
-                y: yClean,
-                mode: 'markers',
-                marker: {
-                    size: 15,
-                    color: zOrColorClean,
-                    colorscale: 'Viridis',
-                    colorbar: {
-                        title: zHeader
-                    },
-                    showscale: true,
-                },
-                type: 'scatter'
-            });
-            layout.title = `气泡图 (按颜色): ${yHeader} vs ${xHeader}`;
-            layout.xaxis.title = xHeader;
-            layout.yaxis.title = yHeader;
-        }
-    }
-    return {
-        traces,
-        layout
-    };
+    return { traces, layout, traces2, layout2 };
 }
 
 function createPlotlyDimension(header, values) {
@@ -2504,14 +2298,14 @@ function drawCategoricalChart(chartType, labelsData, valuesData, labelsHeader, v
         const value = valuesData[i];
         if (label !== '' && label !== null && label !== undefined && value !== null && !isNaN(value)) {
             rawPairs.push({
-                label: label,
+                label: String(label),
                 value: value
             });
         }
     }
 
     if (rawPairs.length === 0) {
-        throw new Error(`所选的标签列 (${labelsHeader}) 和值列 (${valuesHeader}) 之间没有有效的配对数据。`);
+        throw new Error(`所选的标签列 (${labelsHeader}) 和值列 (${valuesHeader}) 之间没有有效的配对数据。请确保值列为数值型。`);
     }
 
     const aggregated = {};
@@ -2528,9 +2322,31 @@ function drawCategoricalChart(chartType, labelsData, valuesData, labelsHeader, v
         value: aggregated[label]
     }));
 
+    const { ordinalMaps, headers } = currentParsedData;
+    const idxLabels = headers.indexOf(labelsHeader);
+    const isOrdinal = idxLabels > -1 && ordinalMaps && ordinalMaps[idxLabels];
 
     if (chartType === 'pareto') {
         finalCombined.sort((a, b) => b.value - a.value);
+    } else if (isOrdinal) {
+        const numericToStringMap = ordinalMaps[idxLabels]; 
+        const stringToNumericMapCI = {};
+        for (const key in numericToStringMap) {
+            const label = numericToStringMap[key];
+            if (label) {
+                stringToNumericMapCI[label.toLowerCase()] = parseInt(key, 10);
+            }
+        }
+
+        finalCombined.sort((a, b) => {
+            const numA = a.label ? stringToNumericMapCI[a.label.toLowerCase()] : undefined;
+            const numB = b.label ? stringToNumericMapCI[b.label.toLowerCase()] : undefined;
+
+            if (numA !== undefined && numB !== undefined) {
+                return numA - numB;
+            }
+            return a.label.localeCompare(b.label);
+        });
     } else {
         finalCombined.sort((a, b) => a.label.localeCompare(b.label));
     }
@@ -2549,6 +2365,8 @@ function drawCategoricalChart(chartType, labelsData, valuesData, labelsHeader, v
             layout.title = `条形图: ${valuesHeader} by ${labelsHeader}`;
             layout.xaxis.title = labelsHeader;
             layout.yaxis.title = valuesHeader;
+            layout.xaxis.categoryorder = 'array';
+            layout.xaxis.categoryarray = finalLabels;
             break;
 
         case 'pie':
@@ -2556,6 +2374,7 @@ function drawCategoricalChart(chartType, labelsData, valuesData, labelsHeader, v
                 labels: finalLabels,
                 values: finalValues,
                 type: 'pie',
+                sort: false, 
                 hoverinfo: 'label+percent+value',
                 textinfo: 'label+percent'
             });
@@ -2620,6 +2439,101 @@ function drawCategoricalChart(chartType, labelsData, valuesData, labelsHeader, v
     };
 }
 
+function drawTrivariateChart(chartType, xData, yData, zData, xHeader, yHeader, zHeader, cData, cHeader, idxX, idxY, idxZ, statsData, layout) {
+    const traces = [];
+    const { ordinalMaps } = currentParsedData;
+
+    layout.xaxis.title = xHeader;
+    layout.yaxis.title = yHeader;
+
+    if (chartType === 'scatter_3d') {
+        const cleanQuads = filterCleanQuads(xData, yData, zData, cData);
+        if (cleanQuads.length === 0) throw new Error(`选择的列 (${xHeader}, ${yHeader}, ${zHeader}, ${cHeader}) 之间没有有效的四维数据点。`);
+
+        const xClean = cleanQuads.map(q => q.x);
+        const yClean = cleanQuads.map(q => q.y);
+        const zClean = cleanQuads.map(q => q.z);
+        const cClean = cleanQuads.map(q => q.c);
+
+        traces.push({
+            x: xClean,
+            y: yClean,
+            z: zClean,
+            mode: 'markers',
+            type: 'scatter3d',
+            marker: {
+                color: cClean,
+                colorscale: 'Viridis',
+                showscale: true,
+                size: 5,
+                opacity: 0.8,
+                colorbar: {
+                    title: cHeader
+                }
+            }
+        });
+        layout.title = `四维散点图`;
+        layout.scene = {
+            xaxis: { title: xHeader },
+            yaxis: { title: yHeader },
+            zaxis: { title: zHeader }
+        };
+        applyOrdinalMap(layout.scene, 'xaxis', idxX, ordinalMaps);
+        applyOrdinalMap(layout.scene, 'yaxis', idxY, ordinalMaps);
+        applyOrdinalMap(layout.scene, 'zaxis', idxZ, ordinalMaps);
+
+    } else {
+        const cleanTriplets = filterCleanTriplets(xData, yData, zData);
+        if (cleanTriplets.length === 0) throw new Error(`选择的列 (${xHeader}, ${yHeader}, ${zHeader}) 之间没有有效的三维数据点。`);
+
+        const xClean = cleanTriplets.map(t => t.x);
+        const yClean = cleanTriplets.map(t => t.y);
+        const zClean = cleanTriplets.map(t => t.z);
+        
+        const zHeaderLabel = (chartType === 'bubble_color') ? `颜色: ${zHeader}` : zHeader;
+
+        if (chartType === 'bubble_color') {
+            traces.push({
+                x: xClean,
+                y: yClean,
+                mode: 'markers',
+                type: 'scatter',
+                marker: {
+                    color: zClean,
+                    colorscale: 'Viridis',
+                    showscale: true,
+                    size: 10,
+                    opacity: 0.8,
+                    colorbar: {
+                        title: zHeaderLabel
+                    }
+                }
+            });
+            layout.title = `三维散点图 (气泡/颜色图)`;
+        } else if (chartType === 'contour') {
+            traces.push({
+                x: xClean,
+                y: yClean,
+                z: zClean,
+                type: 'contour',
+                colorscale: 'Viridis',
+                contours: {
+                    coloring: 'heatmap'
+                },
+                colorbar: {
+                    title: zHeaderLabel
+                }
+            });
+            layout.title = `等高线图`;
+        }
+        
+        applyOrdinalMap(layout, 'xaxis', idxX, ordinalMaps);
+        applyOrdinalMap(layout, 'yaxis', idxY, ordinalMaps);
+    }
+
+    return { traces, layout };
+}
+
 
 function drawChart() {
     inputErrorDiv.textContent = '';
@@ -2637,79 +2551,41 @@ function drawChart() {
     let traces = [];
     let layout = {
         title: '图表/分析结果',
-        xaxis: {
-            title: 'X',
-            automargin: true
-        },
-        yaxis: {
-            title: 'Y',
-            automargin: true
-        },
+        xaxis: { title: 'X', automargin: true },
+        yaxis: { title: 'Y', automargin: true },
         hovermode: 'closest',
-        margin: {
-            l: 60,
-            r: 30,
-            b: 50,
-            t: 60,
-            pad: 4
-        },
+        margin: { l: 60, r: 30, b: 50, t: 60, pad: 4 },
         autosize: true,
-        titlefont: {
-            size: 16
-        }
+        titlefont: { size: 16 }
     };
-    let traces2 = [];
-    let layout2 = null;
+    let traces2 = [], layout2 = null;
     let statsData = {
         headers: currentParsedData?.headers || [],
         basicStats: {},
-        gaussian: null,
-        correlation: undefined,
-        spearmanCorrelation: undefined,
-        regression: null,
-        residuals: null,
-        tTest: null,
-        permutationTest: null,
-        kmeans: null,
-        correlationMatrix: null,
-        involvedHeaders: [],
-        parcoordsColorHeader: null,
-        splomColorHeader: null,
-        parcoordsInteractionNote: null
+        ordinalMaps: currentParsedData?.ordinalMaps || {},
+        gaussian: null, correlation: undefined, spearmanCorrelation: undefined,
+        regression: null, residuals: null, tTest: null, permutationTest: null,
+        kmeans: null, correlationMatrix: null, involvedHeaders: [],
+        parcoordsColorHeader: null, splomColorHeader: null, parcoordsInteractionNote: null
     };
 
     try {
-        if (currentParsedData && currentParsedData.numericData) {
-            currentParsedData.numericData.forEach((col, i) => {
-                const header = currentParsedData.headers[i];
-                if (col && Array.isArray(col)) {
-                    if (col.some(v => v !== null && !isNaN(v))) {
-                        statsData.basicStats[header] = calculateBasicStats(col);
-                    } else {
-                        statsData.basicStats[header] = calculateBasicStats([]);
-                    }
-                }
-            });
-        }
+        currentParsedData.numericData.forEach((col, i) => {
+            const header = currentParsedData.headers[i];
+            statsData.basicStats[header] = calculateBasicStats(col);
+        });
 
         let result = {};
-
-        const {
-            numericData,
-            originalData,
-            headers
-        } = currentParsedData;
+        const { numericData, originalData, headers } = currentParsedData;
 
         const singleVarCharts = ['histogram', 'boxplot', 'violin', 'density', 'gaussian', 'cdf', 't_test_one_sample'];
         const dualVarCharts = ['scatter', 'line_trend', 'area', 'contour_density',
             'scatter_linear_regression', 'scatter_poly2_regression', 'scatter_poly3_regression',
             'scatter_exp_regression', 'scatter_log_regression', 'scatter_power_regression',
-            'residual_plot_linear', 'kmeans', 't_test_paired',
-            't_test_two_sample', 'permutation_test'];
+            'residual_plot_linear', 'kmeans', 't_test_paired', 't_test_two_sample', 'permutation_test'];
         const triVarCharts = ['scatter_3d', 'contour', 'bubble_color'];
         const categoricalCharts = ['bar', 'pie', 'pareto'];
         const multiVarCharts = ['correlation_heatmap', 'scatter_matrix', 'parallel_coordinates'];
-
 
         if (singleVarCharts.includes(chartType)) {
             const idx1 = parseInt(selectCol1.value, 10);
@@ -2726,10 +2602,10 @@ function drawChart() {
             if (isNaN(idxX) || isNaN(idxY) || idxX < 0 || idxY < 0) throw new Error("请为双变量分析选择两个有效的数据列。");
             
             const nonIdenticalRequired = [
-                'scatter', 'line_trend', 'area', 'residual_plot_linear',
-                'scatter_linear_regression', 'scatter_poly2_regression', 'scatter_poly3_regression',
-                'scatter_exp_regression', 'scatter_log_regression', 'scatter_power_regression',
-                't_test_paired', 't_test_two_sample', 'permutation_test', 'kmeans'
+                'scatter', 'line_trend', 'area', 'residual_plot_linear', 'scatter_linear_regression', 
+                'scatter_poly2_regression', 'scatter_poly3_regression', 'scatter_exp_regression', 
+                'scatter_log_regression', 'scatter_power_regression', 't_test_paired', 
+                't_test_two_sample', 'permutation_test', 'kmeans'
             ];
 
             if (idxX === idxY && nonIdenticalRequired.includes(chartType)) {
@@ -2742,33 +2618,24 @@ function drawChart() {
             } else if (chartType === 'kmeans') {
                 result = drawKMeansChart(numericData[idxX], numericData[idxY], headers[idxX], headers[idxY], statsData, layout);
             } else {
-                result = drawBivariateChart(chartType, numericData[idxX], numericData[idxY], headers[idxX], headers[idxY], statsData, layout);
+                result = drawBivariateChart(chartType, numericData[idxX], numericData[idxY], headers[idxX], headers[idxY], idxX, idxY, statsData, layout);
             }
         } else if (triVarCharts.includes(chartType)) {
             const idxX = parseInt(selectCol3DX.value, 10);
             const idxY = parseInt(selectCol3DY.value, 10);
             const idxZ = parseInt(selectCol3DZ.value, 10);
-
-            if (isNaN(idxX) || isNaN(idxY) || isNaN(idxZ)) {
-                throw new Error("请为图表选择所有必需的数据列。");
-            }
+            if (isNaN(idxX) || isNaN(idxY) || isNaN(idxZ)) throw new Error("请为图表选择所有必需的数据列。");
 
             if (chartType === 'scatter_3d') {
                 const idxC = parseInt(selectCol4DColor.value, 10);
                 if (isNaN(idxC)) throw new Error("请为 3D 散点图的颜色轴选择一个有效列。");
-
-                if (new Set([idxX, idxY, idxZ, idxC]).size < 4) {
-                    throw new Error("为 3D 散点图选择的四个轴必须是不同的列。");
-                }
+                if (new Set([idxX, idxY, idxZ, idxC]).size < 4) throw new Error("为 3D 散点图选择的四个轴必须是不同的列。");
                 statsData.involvedHeaders = [headers[idxX], headers[idxY], headers[idxZ], headers[idxC]];
-                result = drawTrivariateChart(chartType, numericData[idxX], numericData[idxY], numericData[idxZ], headers[idxX], headers[idxY], headers[idxZ], numericData[idxC], headers[idxC], statsData, layout);
-
+                result = drawTrivariateChart(chartType, numericData[idxX], numericData[idxY], numericData[idxZ], headers[idxX], headers[idxY], headers[idxZ], numericData[idxC], headers[idxC], idxX, idxY, idxZ, statsData, layout);
             } else { 
-                if (new Set([idxX, idxY, idxZ]).size < 3) {
-                    throw new Error("为图表选择的三个轴必须是不同的列。");
-                }
+                if (new Set([idxX, idxY, idxZ]).size < 3) throw new Error("为图表选择的三个轴必须是不同的列。");
                 statsData.involvedHeaders = [headers[idxX], headers[idxY], headers[idxZ]];
-                result = drawTrivariateChart(chartType, numericData[idxX], numericData[idxY], numericData[idxZ], headers[idxX], headers[idxY], headers[idxZ], null, null, statsData, layout);
+                result = drawTrivariateChart(chartType, numericData[idxX], numericData[idxY], numericData[idxZ], headers[idxX], headers[idxY], headers[idxZ], null, null, idxX, idxY, idxZ, statsData, layout);
             }
         } else if (categoricalCharts.includes(chartType)) {
             const idxLabels = parseInt(selectLabelsCol.value, 10);
@@ -2779,10 +2646,8 @@ function drawChart() {
             result = drawCategoricalChart(chartType, originalData[idxLabels], numericData[idxValues], headers[idxLabels], headers[idxValues], statsData, layout);
         } else if (multiVarCharts.includes(chartType)) {
             result = drawMultivariateChart(chartType, numericData, originalData, headers, statsData, layout);
-        } else if (chartType) {
-            throw new Error(`未知的图表/分析类型: ${chartType}`);
         } else {
-            throw new Error(`请选择一个有效的图表/分析类型。`);
+            throw new Error(chartType ? `未知的图表/分析类型: ${chartType}` : `请选择一个有效的图表/分析类型。`);
         }
 
         traces = result.traces || [];
@@ -2790,12 +2655,10 @@ function drawChart() {
         traces2 = result.traces2 || [];
         layout2 = result.layout2 || null;
 
-        if (traces.length > 0 || layout.shapes?.length > 0 || layout.annotations?.length > 0 || chartType.match(/t_test|permutation/)) {
+        if (traces.length > 0 || layout.shapes?.length > 0 || layout.annotations?.length > 0) {
             Plotly.react(plotDiv, traces, layout);
         } else {
-            Plotly.newPlot(plotDiv, [], {
-                title: '未生成图表 (请查看统计摘要或错误信息)'
-            });
+            Plotly.newPlot(plotDiv, [], { title: '未生成图表 (请查看统计摘要或错误信息)' });
         }
 
         if (traces2.length > 0 && layout2) {
@@ -2810,20 +2673,13 @@ function drawChart() {
 
     } catch (error) {
         console.error("绘图或统计时发生错误:", error);
-        const currentErrors = chartErrorDiv.textContent;
-        const errorMessage = `错误: ${error.message}`;
-        if (!currentErrors.includes(errorMessage)) {
-            chartErrorDiv.textContent = (currentErrors ? currentErrors + '\n\n' : '') + errorMessage;
-        }
+        chartErrorDiv.textContent = (chartErrorDiv.textContent ? chartErrorDiv.textContent + '\n\n' : '') + `错误: ${error.message}`;
         console.error(error.stack);
-
         Plotly.purge(plotDiv);
         Plotly.purge(plotDiv2);
         plotDiv2.style.display = 'none';
         statsContentDiv.innerHTML = `<p style="color: red;">处理时发生错误，无法显示统计摘要。</p>`;
-        Plotly.newPlot(plotDiv, [], {
-            title: '发生错误，请检查数据和选项'
-        });
+        Plotly.newPlot(plotDiv, [], { title: '发生错误，请检查数据和选项' });
         currentStatsData = null;
     }
 }
