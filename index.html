@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.1">
-    <title>Datanaliz</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Datanalize</title>
     <script src="./js/plotly-2.32.0.min.js" defer></script>
     <script src="./js/papaparse.min.js" defer></script>
     <script src="./js/simple-statistics.min.js" defer></script>
@@ -245,12 +245,11 @@
 <body>
     <div class="container">
         <h1>可视化数据分析</h1>
-        
         <h5 style="display: flex; justify-content: space-between; align-items: baseline; width: 100%;">
             <span style="flex: 1;"></span>
-            <span style="flex: 2; text-align: center;">代码完全开源，请放心使用。懂的都懂，致敬1984。</span>
-            <span style="flex: 1; text-align: right;">by OdinCode</span>
-        </h5>
+            <span style="flex: 2; text-align: center;">代码完全开源，请放心使用。</span>
+            <span style="flex: 1; text-align: right;">by OdinCode, Tribute to 1984.</span>
+       </h5>
         <div style="text-align: left;">
         <h3>1. 导入数据</h3></div>
         <div class="input-area">
@@ -263,13 +262,14 @@
              </div>
             <p>或者，将数据直接粘贴到下方文本框中 (使用逗号、制表符分隔列，每行一个观测点):</p>
             <textarea id="dataInput" placeholder="
-多变量示例 (用于热力图, 散点图矩阵, 平行坐标图):
+多变量示例:
 Var1,Var2,Var3,Category,Value
 1,5,10,A,20
 2,6,12,B,22
 1.5,5.5,11,A,21
 2.5,6.5,13,C,23
 8,15,30,B,40
+...
 "></textarea>
         </div>
         <div id="inputError" class="error-message"></div>
@@ -287,18 +287,14 @@ Var1,Var2,Var3,Category,Value
                     <option value="gaussian">高斯拟合分布</option>
                     <option value="cdf">累积分布图 (CDF)</option>
                 </optgroup>
-                 <optgroup label="分类汇总图表 (标签+值)">
+                <optgroup label="双变量图表">
                     <option value="bar">条形图</option>
                     <option value="pie">饼图</option>
                     <option value="pareto">帕累托图</option>
-                </optgroup>
-                <optgroup label="双变量图表 (2 列)">
-                    <option value="scatter">散点图</option>
                     <option value="line_trend">折线图</option>
                     <option value="area">面积图</option>
                     <option value="contour_density">密度等高线图</option>
-                </optgroup>
-                <optgroup label="回归分析 (2 列)">
+                    <option value="scatter">散点图</option>
                     <option value="scatter_linear_regression">散点图 + 线性回归</option>
                     <option value="scatter_poly2_regression">散点图 + 二次多项式回归</option>
                     <option value="scatter_poly3_regression">散点图 + 三次多项式回归</option>
@@ -308,8 +304,8 @@ Var1,Var2,Var3,Category,Value
                     <option value="residual_plot_linear">线性回归残差图</option>
                 </optgroup>
                 <optgroup label="多维可视化 (>2 列)">
-                     <option value="bubble_color">气泡图 (X, Y, 颜色)</option>
-                    <option value="scatter_3d">3D 散点图 (X, Y, Z, 颜色)</option>
+                     <option value="bubble_color">三维散点图 (X, Y, 颜色)</option>
+                    <option value="scatter_3d">四维散点图 (X, Y, Z, 颜色)</option>
                     <option value="contour">等高线图 (X, Y, Z值)</option>
                     <option value="correlation_heatmap">相关系数热力图</option>
                     <option value="scatter_matrix">散点图矩阵</option>
@@ -332,6 +328,7 @@ Var1,Var2,Var3,Category,Value
                 <select id="selectLabelsCol"></select>
                 <label for="selectValuesCol">值列 (数值):</label>
                 <select id="selectValuesCol"></select>
+                <button id="swapXYBtn" title="交换标签列和值列">交换 X/Y</button>
             </div>
             <div id="selectCol1Div" class="column-selector-div input-section">
                 <label for="selectCol1">选择数据列:</label>
@@ -342,7 +339,7 @@ Var1,Var2,Var3,Category,Value
                 <select id="selectColX"></select>
                 <label for="selectColY">Y 轴:</label>
                 <select id="selectColY"></select>
-                <button id="swapXYBtn" title="交换X轴和Y轴选择">交换 X/Y</button>
+                <button id="swapXYBtn" title="交换X轴和Y轴">交换 X/Y</button>
             </div>
             <div id="selectCol3Div" class="column-selector-div input-section">
                 <label for="selectCol3DX">X 轴:</label>
